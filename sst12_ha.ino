@@ -6,41 +6,53 @@
 #include <PID_v1.h>
 
 // encoder pins
-#define ENC_A  3
+#define ENC_A  3 // INT0
 #define ENC_B  12
-#define ENC_C  2
+#define ENC_C  2 // INT1
 
 // iron pins
 #define IRON_CTRL 9
 #define IRON_TC_OUT A7
-#define IRON_SHAKE_SENSOR 6 // Why not 7?
-#define AIR_GUN_HEATER_CTRL 11 // Not PWM pin
+#define IRON_SHAKE_SENSOR 6
+#define AIR_GUN_HEATER_CTRL 10
 #define AIR_GUN_TC_OUT A6
-#define AIR_GUN_FAN_CTRL 10
+#define AIR_GUN_FAN_CTRL 11
 #define AIR_GUN_REED 8
 
 // max6675 thermocouple temporary
-#define thermoDO 4
-#define thermoCS 5
-#define thermoCLK 7
+//#define thermoDO 4
+//#define thermoCS 5
+//#define thermoCLK 7
 
-MAX6675 thermocouple(thermoCLK, thermoCS, thermoDO);
+//MAX6675 thermocouple(thermoCLK, thermoCS, thermoDO);
 
 volatile unsigned int encoderPos = 0;
 volatile unsigned int btnPress = 0;
 
 // PID variables for iron and air gun
-double iron_sp, air_gun_sp, iron_in, air_gun_in, iron_out, air_gun_out;
+double iron_sp
+      ,air_gun_sp
+      ,iron_in
+      ,air_gun_in
+      ,iron_out
+      ,air_gun_out;
 
 PID iron_PID(&iron_in, &iron_out, &iron_sp, 2, 5, 1, DIRECT);
 //PID air_gun_PID(&air_gun_in, &air_gun_out, &air_gun_sp, 2, 5, 1, DIRECT);
 
-#define OLED_RESET 4
-Adafruit_SSD1306 display(OLED_RESET);
+#define SCREEN_WIDTH 128 // OLED display width, in pixels
+#define SCREEN_HEIGHT 64 // OLED display height, in pixels
 
-#if (SSD1306_LCDHEIGHT != 64)
-#error("Height incorrect, please fix Adafruit_SSD1306.h!");
-#endif
+// Declaration for an SSD1306 display connected to I2C (SDA, SCL pins)
+#define OLED_RESET     4 // Reset pin # (or -1 if sharing Arduino reset pin)
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+
+//#define OLED_RESET 4
+//Adafruit_SSD1306 display(OLED_RESET);
+
+//#if (SSD1306_LCDHEIGHT != 64)
+//#error("Height incorrect, please fix Adafruit_SSD1306.h!");
+//#endif
 
 void setup() {
   // put your setup code here, to run once:
@@ -48,9 +60,11 @@ void setup() {
   
 // Init PWM and ctrl pins
   pinMode(IRON_CTRL, OUTPUT);
+  pinMode(AIR_GUN_HEATER_CTRL, OUTPUT);
   pinMode(AIR_GUN_FAN_CTRL, OUTPUT);
   TCCR1B = TCCR1B & 0b11111000 | 0x05;
   analogWrite(IRON_CTRL, 0);
+  analogWrite(AIR_GUN_HEATER_CTRL, 0);
   analogWrite(AIR_GUN_FAN_CTRL, 0);
 
   pinMode(ENC_A, INPUT);
@@ -96,7 +110,8 @@ void loop() {
   // put your main code here, to run repeatedly:
   // Display Temperature in C
   int tempReading = analogRead(IRON_TC_OUT);
-  //double tempReading = thermocouple.readCelsius();
+//  double tempReading2 = thermocouple.readCelsius();
+//  Serial.println(tempReading2);
 //  float tempVolts = tempReading * 3.3 / 1024.0;
 //  float tempC = (tempVolts - 0.5) * 100.0;
   //         ----------------
@@ -116,24 +131,28 @@ void loop() {
   iron_sp = encoderPos;
   iron_in = tempReading;
   iron_PID.Compute();
-  analogWrite(IRON_CTRL, iron_out);//encoderPos % 256);
+  analogWrite(IRON_CTRL, encoderPos % 256); //iron_out);
+  analogWrite(AIR_GUN_HEATER_CTRL, encoderPos % 256);
+  analogWrite(AIR_GUN_FAN_CTRL, encoderPos % 256);
 
   display.clearDisplay();
   // text display tests
   display.setTextSize(2);
   display.setTextColor(WHITE);
   display.setCursor(0,0);
-  display.print("TMP: ");
-  display.println(tempReading);
+  display.print("IRON: ");
+  display.println(analogRead(IRON_TC_OUT));
+  display.print("HAG: ");
+  display.println(analogRead(AIR_GUN_TC_OUT));
   display.print("ENC: ");
   display.println(encoderPos);
-  display.print("OUT: ");
-  display.println(iron_out);
+//  display.print("OUT: ");
+//  display.println(iron_out);
 //  display.setTextColor(BLACK, WHITE); // 'inverted' text
   display.display();
   btnPress = 0;
 
-  delay(200);
+//  delay(200);
 }
 
 void doEncoderBtn() {
