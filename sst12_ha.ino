@@ -2,7 +2,8 @@
 #include <Wire.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
-#include <max6675.h>
+//#include <max6675.h>
+#include <PWM.h>
 #include <PID_v1.h>
 
 // encoder pins
@@ -19,24 +20,22 @@
 #define AIR_GUN_FAN_CTRL 11
 #define AIR_GUN_REED 8
 
-// max6675 thermocouple temporary
+// max6675 thermocouple, temporary for calibration
 //#define thermoDO 4
 //#define thermoCS 5
 //#define thermoCLK 7
 
 //MAX6675 thermocouple(thermoCLK, thermoCS, thermoDO);
 
-volatile unsigned int encoderPos = 0;
+volatile int encoderPos = 0;
+volatile int encoderMin, encoderMax, encoderStep;
+volatile bool encoderLooped = true;
 volatile unsigned int btnPress = 0;
 
 // PID variables for iron and air gun
-double iron_sp
-      ,air_gun_sp
-      ,iron_in
-      ,air_gun_in
-      ,iron_out
-      ,air_gun_out;
+double iron_sp, air_gun_sp, iron_in, air_gun_in, iron_out, air_gun_out;
 
+//PID myPID(&Input, &Output, &Setpoint, Kp, Ki, Kd, DIRECT);
 PID iron_PID(&iron_in, &iron_out, &iron_sp, 2, 5, 1, DIRECT);
 //PID air_gun_PID(&air_gun_in, &air_gun_out, &air_gun_sp, 2, 5, 1, DIRECT);
 
@@ -47,9 +46,6 @@ PID iron_PID(&iron_in, &iron_out, &iron_sp, 2, 5, 1, DIRECT);
 #define OLED_RESET     4 // Reset pin # (or -1 if sharing Arduino reset pin)
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
-//#define OLED_RESET 4
-//Adafruit_SSD1306 display(OLED_RESET);
-
 //#if (SSD1306_LCDHEIGHT != 64)
 //#error("Height incorrect, please fix Adafruit_SSD1306.h!");
 //#endif
@@ -58,15 +54,26 @@ void setup() {
   // put your setup code here, to run once:
   Serial.begin(9600);
   
+// Lower PWM frequency to 30 Hz
+//  TCCR1B = TCCR1B & 0b11111000 | 0x05;
+
 // Init PWM and ctrl pins
+// PWM lib. Init all timers except for 0, to save time keeping functions
+  InitTimersSafe();
+// PWM lib. Set IRON_CTRL and AIR_GUN_HEATER_CTRL pins frequency to 3 Hz
+  SetPinFrequencySafe(IRON_CTRL, 3);
+  SetPinFrequencySafe(AIR_GUN_HEATER_CTRL, 3);
+  SetPinFrequencySafe(AIR_GUN_FAN_CTRL, 490);
+
   pinMode(IRON_CTRL, OUTPUT);
   pinMode(AIR_GUN_HEATER_CTRL, OUTPUT);
   pinMode(AIR_GUN_FAN_CTRL, OUTPUT);
-  TCCR1B = TCCR1B & 0b11111000 | 0x05;
+
   analogWrite(IRON_CTRL, 0);
   analogWrite(AIR_GUN_HEATER_CTRL, 0);
   analogWrite(AIR_GUN_FAN_CTRL, 0);
 
+// Init encoder pins and assign functions to interruptions
   pinMode(ENC_A, INPUT);
   pinMode(ENC_B, INPUT);
   pinMode(ENC_C, INPUT);
@@ -74,16 +81,16 @@ void setup() {
   digitalWrite(ENC_B, HIGH);
   digitalWrite(ENC_C, HIGH);
 
-  attachInterrupt(0, doEncoderBtn, CHANGE);  // encoder pin on interrupt 0 - pin 2
-  attachInterrupt(1, doEncoder_Expanded, CHANGE);     // encoder pin on interrupt 1 - pin 3
+  initEncoder(0, 0, 256, 10, false);
 
-  // by default, we'll generate the high voltage from the 3.3v line internally! (neat!)
+// Encoder pin on interrupt 0 - pin 2
+  attachInterrupt(0, doEncoderBtn, CHANGE);
+// Encoder pin on interrupt 1 - pin 3
+  attachInterrupt(1, doEncoderTune, CHANGE);
+
+// Init OLED display
   display.begin(SSD1306_SWITCHCAPVCC, 0x3C);  // initialize with the I2C addr 0x3D (for the 128x64)
-  // init done
   
-  // Show image buffer on the display hardware.
-  // Since the buffer is intialized with an Adafruit splashscreen
-  // internally, this will display the splashscreen.
 //  display.display();
 //  delay(2000);
 
@@ -131,9 +138,12 @@ void loop() {
   iron_sp = encoderPos;
   iron_in = tempReading;
   iron_PID.Compute();
-  analogWrite(IRON_CTRL, encoderPos % 256); //iron_out);
-  analogWrite(AIR_GUN_HEATER_CTRL, encoderPos % 256);
-  analogWrite(AIR_GUN_FAN_CTRL, encoderPos % 256);
+//  analogWrite(IRON_CTRL, encoderPos); //iron_out);
+  pwmWrite(IRON_CTRL, encoderPos);
+//  analogWrite(AIR_GUN_HEATER_CTRL, encoderPos);
+  pwmWrite(AIR_GUN_HEATER_CTRL, encoderPos);
+//  analogWrite(AIR_GUN_FAN_CTRL, encoderPos);
+  pwmWrite(AIR_GUN_FAN_CTRL, encoderPos);
 
   display.clearDisplay();
   // text display tests
@@ -155,36 +165,48 @@ void loop() {
 //  delay(200);
 }
 
+
+void initEncoder(unsigned int cur, unsigned int min, unsigned int max, unsigned int step, bool looped) {
+  encoderPos = cur; encoderMin = min; encoderMax = max; encoderStep = step; encoderLooped = looped;
+}
+
 void doEncoderBtn() {
-  /* If pinA and pinB are both high or both low, it is spinning
-   * forward. If they're different, it's going backward.
-   */
   btnPress = 1;
+
 //  Serial.println("Btn changed");
 }
 
-void doEncoder_Expanded(){
-  if (digitalRead(ENC_A) == HIGH) {   // found a low-to-high on channel A
-    if (digitalRead(ENC_B) == LOW) {  // check channel B to see which way
-                                             // encoder is turning
-      encoderPos = encoderPos - 1;         // CCW
-    } 
-    else {
-      encoderPos = encoderPos + 1;         // CW
-    }
-  }
-  else                                        // found a high-to-low on channel A
-  { 
-    if (digitalRead(ENC_B) == LOW) {   // check channel B to see which way
-                                              // encoder is turning  
-      encoderPos = encoderPos + 1;          // CW
-    } 
-    else {
-      encoderPos = encoderPos - 1;          // CCW
-    }
+void doEncoderTune() {
 
+int diff = 0;
+
+  if (digitalRead(ENC_A) == HIGH) {   // found a low-to-high on channel A
+/*    if (digitalRead(ENC_B) == LOW)    // check channel B to see which way encoder is turning
+      encoderPos = encoderPos - 1;    // CCW
+    else
+      encoderPos = encoderPos + 1;    // CW
+*/  }
+  else {                              // found a high-to-low on channel A
+    if (digitalRead(ENC_B) == LOW)    // check channel B to see which way encoder is turning  
+      diff = encoderStep;    // CW
+    else
+      diff = -encoderStep;   // CCW
+    }
+ 
+
+  if (encoderPos + diff > encoderMax) {
+    if (encoderLooped)
+      encoderPos = encoderMin;
+    else
+      encoderPos = encoderMax;
+  } else if (encoderPos + diff < encoderMin) {
+    if (encoderLooped)
+      encoderPos = encoderMax;
+    else
+      encoderPos = encoderMin;
+  } else {
+    encoderPos = encoderPos + diff;
   }
-//  Serial.println (encoderPos, DEC);          // debug - remember to comment out
-                                              // before final program run
-  // you don't want serial slowing down your program if not needed
+
+//  Serial.println (encoderPos, DEC);
 }
