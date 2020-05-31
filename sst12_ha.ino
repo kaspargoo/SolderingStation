@@ -3,7 +3,7 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 //#include <max6675.h>
-#include <PWM.h>
+//#include <PWM.h>
 #include <PID_v1.h>
 
 // encoder pins
@@ -32,6 +32,9 @@ volatile int encoderMin, encoderMax, encoderStep;
 volatile bool encoderLooped = true;
 volatile unsigned int btnPress = 0;
 
+// Sensor variables
+int ironTemp, airGunTemp;
+
 // PID variables for iron and air gun
 double iron_sp, air_gun_sp, iron_in, air_gun_in, iron_out, air_gun_out;
 
@@ -55,15 +58,15 @@ void setup() {
   Serial.begin(9600);
   
 // Lower PWM frequency to 30 Hz
-//  TCCR1B = TCCR1B & 0b11111000 | 0x05;
+  TCCR1B = TCCR1B & 0b11111000 | 0x05;
 
 // Init PWM and ctrl pins
 // PWM lib. Init all timers except for 0, to save time keeping functions
-  InitTimersSafe();
+//  InitTimersSafe();
 // PWM lib. Set IRON_CTRL and AIR_GUN_HEATER_CTRL pins frequency to 3 Hz
-  SetPinFrequencySafe(IRON_CTRL, 3);
-  SetPinFrequencySafe(AIR_GUN_HEATER_CTRL, 3);
-  SetPinFrequencySafe(AIR_GUN_FAN_CTRL, 490);
+//  SetPinFrequencySafe(IRON_CTRL, 3);
+//  SetPinFrequencySafe(AIR_GUN_HEATER_CTRL, 3);
+//  SetPinFrequencySafe(AIR_GUN_FAN_CTRL, 490);
 
   pinMode(IRON_CTRL, OUTPUT);
   pinMode(AIR_GUN_HEATER_CTRL, OUTPUT);
@@ -116,7 +119,6 @@ void setup() {
 void loop() {
   // put your main code here, to run repeatedly:
   // Display Temperature in C
-  int tempReading = analogRead(IRON_TC_OUT);
 //  double tempReading2 = thermocouple.readCelsius();
 //  Serial.println(tempReading2);
 //  float tempVolts = tempReading * 3.3 / 1024.0;
@@ -134,16 +136,19 @@ void loop() {
 //  lcd.print(encoderPos);//lightReading);
 //  lcd.print(tempReading);
 
+// Get temperature
+  readTemp();
+
 // iron PID regulation
   iron_sp = encoderPos;
-  iron_in = tempReading;
+  iron_in = ironTemp;
   iron_PID.Compute();
-//  analogWrite(IRON_CTRL, encoderPos); //iron_out);
-  pwmWrite(IRON_CTRL, encoderPos);
-//  analogWrite(AIR_GUN_HEATER_CTRL, encoderPos);
-  pwmWrite(AIR_GUN_HEATER_CTRL, encoderPos);
-//  analogWrite(AIR_GUN_FAN_CTRL, encoderPos);
-  pwmWrite(AIR_GUN_FAN_CTRL, encoderPos);
+  analogWrite(IRON_CTRL, encoderPos); //iron_out);
+//  pwmWrite(IRON_CTRL, encoderPos);
+  analogWrite(AIR_GUN_HEATER_CTRL, encoderPos);
+//  pwmWrite(AIR_GUN_HEATER_CTRL, encoderPos);
+  analogWrite(AIR_GUN_FAN_CTRL, encoderPos);
+//  pwmWrite(AIR_GUN_FAN_CTRL, encoderPos);
 
   display.clearDisplay();
   // text display tests
@@ -151,9 +156,9 @@ void loop() {
   display.setTextColor(WHITE);
   display.setCursor(0,0);
   display.print("IRON: ");
-  display.println(analogRead(IRON_TC_OUT));
+  display.println(ironTemp);
   display.print("HAG: ");
-  display.println(analogRead(AIR_GUN_TC_OUT));
+  display.println(airGunTemp);
   display.print("ENC: ");
   display.println(encoderPos);
 //  display.print("OUT: ");
@@ -165,6 +170,17 @@ void loop() {
 //  delay(200);
 }
 
+void readTemp() {
+  int tempReading = analogRead(AIR_GUN_TC_OUT);
+  airGunTemp = tempReading;
+
+  
+  analogWrite(IRON_CTRL, 0);
+  delay(10);
+  tempReading = analogRead(IRON_TC_OUT);
+  ironTemp = tempReading;
+  analogWrite(IRON_CTRL, encoderPos);
+}
 
 void initEncoder(unsigned int cur, unsigned int min, unsigned int max, unsigned int step, bool looped) {
   encoderPos = cur; encoderMin = min; encoderMax = max; encoderStep = step; encoderLooped = looped;
