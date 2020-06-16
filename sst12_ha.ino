@@ -15,6 +15,7 @@
 #define IRON_CTRL 9
 #define IRON_TC_OUT A7
 #define IRON_SHAKE_SENSOR 6
+#define IRON_THERMISTOR A3
 #define AIR_GUN_HEATER_CTRL 10
 #define AIR_GUN_TC_OUT A6
 #define AIR_GUN_FAN_CTRL 11
@@ -33,7 +34,8 @@ volatile bool encoderLooped = true;
 volatile unsigned int btnPress = 0;
 
 // Sensor variables
-int ironTemp, airGunTemp;
+int ironTemp, airGunTemp, ironHandleTemp;
+byte ironSakeSensor;
 
 // PID variables for iron and air gun
 double iron_sp, air_gun_sp, iron_in, air_gun_in, iron_out, air_gun_out;
@@ -101,7 +103,11 @@ void setup() {
   display.clearDisplay();
 
   // draw a single pixel
-  display.drawPixel(10, 10, WHITE);
+//  display.drawPixel(10, 10, WHITE);
+  display.setTextSize(2);
+  display.setTextColor(WHITE);
+  display.setCursor(0,0);
+  display.print("DASHA;)");
   // Show the display buffer on the hardware.
   // NOTE: You _must_ call display after making any drawing commands
   // to make them visible on the display hardware!
@@ -136,8 +142,8 @@ void loop() {
 //  lcd.print(encoderPos);//lightReading);
 //  lcd.print(tempReading);
 
-// Get temperature
-  readTemp();
+// Get sensors
+  readSensors();
 
 // iron PID regulation
   iron_sp = encoderPos;
@@ -159,6 +165,8 @@ void loop() {
   display.println(ironTemp);
   display.print("HAG: ");
   display.println(airGunTemp);
+  display.print("IHT: ");
+  display.println(ironHandleTemp);
   display.print("ENC: ");
   display.println(encoderPos);
 //  display.print("OUT: ");
@@ -170,11 +178,12 @@ void loop() {
 //  delay(200);
 }
 
-void readTemp() {
+void readSensors() {
   int tempReading = analogRead(AIR_GUN_TC_OUT);
   airGunTemp = tempReading;
-
   
+  tempReading = analogRead(IRON_SHAKE_SENSOR);
+  ironHandleTemp
   analogWrite(IRON_CTRL, 0);
   delay(10);
   tempReading = analogRead(IRON_TC_OUT);
