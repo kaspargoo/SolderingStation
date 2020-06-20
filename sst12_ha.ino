@@ -6,6 +6,24 @@
 //#include <PWM.h>
 #include <PID_v1.h>
 
+// UI display modes
+#define UI_MAIN 0
+#define UI_SET 1
+#define UI_ABOUT 2
+
+// UI cursor
+#define SEL_IRON 0
+#define SEL_HAG 1
+#define SEL_HAG_FAN 2
+
+/*#define UI_MM_IRON 0
+#define UI_MM_HAG 1
+#define UI_MM_SETTINGS 2
+#define UI_IRON 3
+#define UI_HAG 4
+#define UI_SETTINGS 5
+#define UI_ABOUT 6
+*/
 // encoder pins
 #define ENC_A  3 // INT0
 #define ENC_B  12
@@ -28,10 +46,16 @@
 
 //MAX6675 thermocouple(thermoCLK, thermoCS, thermoDO);
 
-volatile int encoderPos = 0;
+unsigned int UIMode, UIBackTimer, UICursor;
+
+int prevEncoderPos;
+volatile int encoderPos;
 volatile int encoderMin, encoderMax, encoderStep;
 volatile bool encoderLooped = true;
 volatile unsigned int btnPress = 0;
+
+// Control variables
+int ironTempCtrl, airGunTempCtrl, airGunFanCtrl;
 
 // Sensor variables
 int ironTemp, airGunTemp, ironHandleTemp;
@@ -42,7 +66,7 @@ double iron_sp, air_gun_sp, iron_in, air_gun_in, iron_out, air_gun_out;
 
 //PID myPID(&Input, &Output, &Setpoint, Kp, Ki, Kd, DIRECT);
 PID iron_PID(&iron_in, &iron_out, &iron_sp, 2, 5, 1, DIRECT);
-//PID air_gun_PID(&air_gun_in, &air_gun_out, &air_gun_sp, 2, 5, 1, DIRECT);
+PID air_gun_PID(&air_gun_in, &air_gun_out, &air_gun_sp, 2, 5, 1, DIRECT);
 
 #define SCREEN_WIDTH 128 // OLED display width, in pixels
 #define SCREEN_HEIGHT 64 // OLED display height, in pixels
@@ -86,8 +110,6 @@ void setup() {
   digitalWrite(ENC_B, HIGH);
   digitalWrite(ENC_C, HIGH);
 
-  initEncoder(0, 0, 256, 10, false);
-
 // Encoder pin on interrupt 0 - pin 2
   attachInterrupt(0, doEncoderBtn, CHANGE);
 // Encoder pin on interrupt 1 - pin 3
@@ -96,94 +118,165 @@ void setup() {
 // Init OLED display
   display.begin(SSD1306_SWITCHCAPVCC, 0x3C);  // initialize with the I2C addr 0x3D (for the 128x64)
   
-//  display.display();
-//  delay(2000);
+// Controls init
+  ironTempCtrl = 0; airGunTempCtrl = 0, airGunFanCtrl = 0;
 
-  // Clear the buffer.
-  display.clearDisplay();
-
-  // draw a single pixel
-//  display.drawPixel(10, 10, WHITE);
-  display.setTextSize(2);
-  display.setTextColor(WHITE);
-  display.setCursor(0,0);
-  display.print("DASHA;)");
-  // Show the display buffer on the hardware.
-  // NOTE: You _must_ call display after making any drawing commands
-  // to make them visible on the display hardware!
-  display.display();
-
-// ironPID init
-  iron_in = 0;
-  iron_sp = 0;
-  iron_PID.SetMode(AUTOMATIC);
+// PIDs init
+  iron_in = 0; iron_sp = 0; iron_PID.SetMode(AUTOMATIC);
 
 // for max6675
-  delay(500);
+//  delay(1000);
+
+//  initEncoder(0, 0, 250, 10, false);
+  UICursor = 0;
+  setUIMode(UI_ABOUT, 1000);
+
 }
 
 void loop() {
-  // put your main code here, to run repeatedly:
+  
+// Read sensor data
+  readSensors();
+
+// Draw UI
+  drawUI();
+
+// Calculate control values
+  calcControls();
+
+// Update control state
+  setControls();
+
+}
+
+void drawUI() {
+  String cc;
+
+  if (UIBackTimer > 0 && UIBackTimer <= millis()) {
+    setUIMode(UI_MAIN, 0);
+  }
+
+  display.clearDisplay();
+  display.setTextColor(WHITE);
+
+  switch (UIMode) {
+    case UI_SET:
+      display.setTextSize(4);
+      display.setCursor(20,16);
+      display.println(encoderPos);
+      display.setTextSize(1);
+      display.println(String(UIBackTimer) + " " + String(millis()));
+      display.print(String(prevEncoderPos) + " " + String(encoderPos));
+
+      if (prevEncoderPos != encoderPos) {
+        switch (UICursor) {
+          case SEL_IRON:
+            ironTempCtrl = encoderPos;
+            break;
+          case SEL_HAG:
+            airGunTempCtrl = encoderPos;
+            break;
+          case SEL_HAG_FAN:
+            airGunFanCtrl = encoderPos;
+        }
+        prevEncoderPos = encoderPos;
+        UIBackTimer = millis() + 3000;
+      }
+
+      if (btnPress == 1) {
+        setUIMode(UI_MAIN, 0);
+        btnPress = 0;
+      }
+      break;
+    case UI_ABOUT:
+      display.setTextSize(2);
+      display.setCursor(0,0);
+      display.println(" SST12_HA ");
+      display.println("SW: 0.3");
+      display.println("HW: REV A");
+      display.setTextSize(1);
+      display.println(String(UIBackTimer) + " " + String(millis()));
+      display.println("kaspargoo@gmail.com");
+      if (btnPress == 1) {
+        setUIMode(UI_MAIN, 0);
+        btnPress = 0;
+      }
+      break;
+    default: // UI_MAIN
+      UICursor = encoderPos;
+      display.setTextSize(2);
+      display.setCursor(0,0);
+      if (UICursor == SEL_IRON) cc = ">"; else cc = " ";
+      display.print(cc + "IT: ");
+      display.println(ironTemp);
+      if (UICursor == SEL_HAG) cc = ">"; else cc = " ";
+      display.print(cc + "HT: ");
+      display.println(airGunTemp);
+      if (UICursor == SEL_HAG_FAN) cc = ">"; else cc = " ";
+      display.print(cc + "HF: ");
+      display.println(airGunFanCtrl);
+      display.setTextSize(1);
+      display.print("EP: ");
+      display.println(String(UIBackTimer) + " " + String(millis()));
+      display.print(String(UICursor) + " " + String(btnPress));
+
+      if (btnPress == 1) {
+        setUIMode(UI_SET, 3000);
+        btnPress = 0;
+      }
+  }
+
+  display.display();
+
+//  display.setTextColor(BLACK, WHITE); // 'inverted' text
+//  display.drawPixel(10, 10, WHITE);
+
+}
+
+void setUIMode(unsigned int mode, unsigned int backTimer) {
+
+  switch (mode) {
+    case UI_SET:
+      UIMode = UI_SET;
+      switch (UICursor) {
+        case SEL_IRON:
+          initEncoder(ironTempCtrl, 0, 750, 10, false);
+          break;
+        case SEL_HAG:
+          initEncoder(airGunTempCtrl, 0, 750, 10, false);
+          break;
+        case SEL_HAG_FAN:
+          initEncoder(airGunFanCtrl, 0, 100, 10, false);
+      }
+      break;
+    case UI_ABOUT:
+      UIMode = UI_ABOUT;
+      break;
+    default: //UI_MAIN
+      UIMode = UI_MAIN;
+      initEncoder(UICursor, 0, 2, 1, true);
+  }
+
+  if (backTimer > 0)
+    UIBackTimer = millis() + backTimer;
+  else
+    UIBackTimer = 0;
+
+}
+
+void readSensors() {
   // Display Temperature in C
 //  double tempReading2 = thermocouple.readCelsius();
 //  Serial.println(tempReading2);
 //  float tempVolts = tempReading * 3.3 / 1024.0;
 //  float tempC = (tempVolts - 0.5) * 100.0;
-  //         ----------------
-//  lcd.print(tempReading);
-//  lcd.print(tempC);
-  
-  // Display Light on second row
-//  int lightReading = analogRead(lightPin);
-//  lcd.setCursor(0, 1);
-  //         ----------------
-//  lcd.print("ADC2:         ");  
-//  lcd.setCursor(6, 1);
-//  lcd.print(encoderPos);//lightReading);
-//  lcd.print(tempReading);
 
-// Get sensors
-  readSensors();
-
-// iron PID regulation
-  iron_sp = encoderPos;
-  iron_in = ironTemp;
-  iron_PID.Compute();
-  analogWrite(IRON_CTRL, encoderPos); //iron_out);
-//  pwmWrite(IRON_CTRL, encoderPos);
-  analogWrite(AIR_GUN_HEATER_CTRL, encoderPos);
-//  pwmWrite(AIR_GUN_HEATER_CTRL, encoderPos);
-  analogWrite(AIR_GUN_FAN_CTRL, encoderPos);
-//  pwmWrite(AIR_GUN_FAN_CTRL, encoderPos);
-
-  display.clearDisplay();
-  // text display tests
-  display.setTextSize(2);
-  display.setTextColor(WHITE);
-  display.setCursor(0,0);
-  display.print("IRON: ");
-  display.println(ironTemp);
-  display.print("HAG: ");
-  display.println(airGunTemp);
-  display.print("IHT: ");
-  display.println(ironHandleTemp);
-  display.print("ENC: ");
-  display.println(encoderPos);
-//  display.print("OUT: ");
-//  display.println(iron_out);
-//  display.setTextColor(BLACK, WHITE); // 'inverted' text
-  display.display();
-  btnPress = 0;
-
-//  delay(200);
-}
-
-void readSensors() {
   int tempReading = analogRead(AIR_GUN_TC_OUT);
   airGunTemp = tempReading;
   
-  tempReading = analogRead(IRON_SHAKE_SENSOR);
-  ironHandleTemp
+  tempReading = analogRead(IRON_THERMISTOR);
+  ironHandleTemp = tempReading;
+
   analogWrite(IRON_CTRL, 0);
   delay(10);
   tempReading = analogRead(IRON_TC_OUT);
@@ -191,13 +284,42 @@ void readSensors() {
   analogWrite(IRON_CTRL, encoderPos);
 }
 
+void calcControls() {
+
+  if (ironTempCtrl > 0) {
+    iron_sp = ironTempCtrl;
+    iron_in = ironTemp;
+    iron_PID.Compute();
+  }
+  else iron_out = 0;
+
+  if (airGunTempCtrl > 0) {
+    air_gun_sp = airGunTempCtrl;
+    air_gun_in = airGunTemp;
+    air_gun_PID.Compute();
+  }
+  else air_gun_out = 0;
+  
+}
+
+void setControls() {
+  analogWrite(IRON_CTRL, 255 * iron_out); //);
+//  pwmWrite(IRON_CTRL, encoderPos);
+  analogWrite(AIR_GUN_HEATER_CTRL, 0.2 * 255 * air_gun_out);
+//  pwmWrite(AIR_GUN_HEATER_CTRL, encoderPos);
+  analogWrite(AIR_GUN_FAN_CTRL, 255 * ironTempCtrl / 100);
+//  pwmWrite(AIR_GUN_FAN_CTRL, encoderPos);
+}
+
 void initEncoder(unsigned int cur, unsigned int min, unsigned int max, unsigned int step, bool looped) {
   encoderPos = cur; encoderMin = min; encoderMax = max; encoderStep = step; encoderLooped = looped;
 }
 
 void doEncoderBtn() {
-  btnPress = 1;
 
+  if (digitalRead(ENC_C) == HIGH) {
+    btnPress = 1;
+  }
 //  Serial.println("Btn changed");
 }
 
