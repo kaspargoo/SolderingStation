@@ -46,7 +46,11 @@
 
 //MAX6675 thermocouple(thermoCLK, thermoCS, thermoDO);
 
-unsigned int UIMode, UIBackTimer, UICursor;
+// Smoothing factor (0 = don't smooth)
+const byte averageFactor = 7;
+
+byte UIMode, UICursor;
+unsigned long UIBackTimer;
 
 int prevEncoderPos;
 volatile int encoderPos;
@@ -58,7 +62,7 @@ volatile unsigned int btnPress = 0;
 int ironTempCtrl, airGunTempCtrl, airGunFanCtrl;
 
 // Sensor variables
-int ironTemp, airGunTemp, ironHandleTemp;
+int ironTemp, airGunTemp, ironHandleTemp, oldIronTemp, oldAirGunTemp;
 byte ironSakeSensor;
 
 // PID variables for iron and air gun
@@ -120,13 +124,17 @@ void setup() {
 // Init OLED display
   display.begin(SSD1306_SWITCHCAPVCC, 0x3C);  // initialize with the I2C addr 0x3D (for the 128x64)
   
+// Initial temp reading
+  ironTemp = analogRead(IRON_TC_OUT);
+  airGunTemp = analogRead(AIR_GUN_TC_OUT);
+
 // Controls init
   ironTempCtrl = 0; airGunTempCtrl = 0, airGunFanCtrl = 0;
 
 // PIDs init
   iron_in = 0; iron_sp = 0; iron_PID.SetMode(AUTOMATIC);
   air_gun_in = 0; air_gun_sp = 0; air_gun_PID.SetMode(AUTOMATIC);
-  
+
   airGunFanCtrl = 100;
 
 // for max6675
@@ -170,8 +178,7 @@ void drawUI() {
       display.setCursor(20,16);
       display.println(encoderPos);
       display.setTextSize(1);
-//      Serial.println("BT: " + String(UIBackTimer) + ", IT: " + String(ironTempCtrl) + ", IO " + String(iron_out));
-      display.println("BT: " + String(UIBackTimer));// + ",EP: " + String(encoderPos));// + ",BP: " + String(btnPress));
+      display.println("BT: " + String(UIBackTimer) + ",EP: " + String(encoderPos) + ",BP: " + String(btnPress));
       display.print("IT: " + String(ironTempCtrl));// + ",HT: " + String(airGunTempCtrl));// +",HF: " + String(airGunFanCtrl));
       display.print(" IO: " + String(iron_out));// + ",HT: " + String(airGunTempCtrl));// +",HF: " + String(airGunFanCtrl));
 //      display.print(String(prevEncoderPos) + " " + String(encoderPos));
@@ -224,9 +231,8 @@ void drawUI() {
       display.print(cc + "HF: ");
       display.println(airGunFanCtrl);
       display.setTextSize(1);
-//      Serial.println("BT: " + String(UIBackTimer) + ", IT: " + String(ironTempCtrl) + ", IO " + String(iron_out));
 
-      display.println("BT: " + String(UIBackTimer));// + ",EP: " + String(encoderPos));// + ",BP: " + String(btnPress));
+      display.println("BT: " + String(UIBackTimer) + ",EP: " + String(encoderPos) + ",BP: " + String(btnPress));
       display.print("IT: " + String(ironTempCtrl));// + ",HT: " + String(airGunTempCtrl));// +",HF: " + String(airGunFanCtrl));
       display.print(" IO: " + String(iron_out));// + ",HT: " + String(airGunTempCtrl));// +",HF: " + String(airGunFanCtrl));
 
@@ -279,17 +285,32 @@ void readSensors() {
 //  float tempVolts = tempReading * 3.3 / 1024.0;
 //  float tempC = (tempVolts - 0.5) * 100.0;
 
-  int tempReading = analogRead(AIR_GUN_TC_OUT);
-  airGunTemp = tempReading;
-  
-  tempReading = analogRead(IRON_THERMISTOR);
-  ironHandleTemp = tempReading;
+//  int tempReading = analogRead(AIR_GUN_TC_OUT);
+//  airGunTemp = tempReading;
+  oldAirGunTemp = airGunTemp;
+  airGunTemp = analogRead(AIR_GUN_TC_OUT);
+
+  if (averageFactor > 0) {
+    airGunTemp = (oldAirGunTemp * (averageFactor - 1) + airGunTemp) / averageFactor;
+  }
+
+//  tempReading = analogRead(IRON_THERMISTOR);
+//  ironHandleTemp = tempReading;
+  ironHandleTemp = analogRead(IRON_THERMISTOR);
 
 // Stop iron PWM to read temperature
   analogWrite(IRON_CTRL, 0);
   delay(10);
-  tempReading = analogRead(IRON_TC_OUT);
-  ironTemp = tempReading;
+//  tempReading = analogRead(IRON_TC_OUT);
+//  ironTemp = tempReading;
+  
+  oldIronTemp = ironTemp;
+  ironTemp = analogRead(IRON_TC_OUT);
+
+  if (averageFactor > 0) {
+    ironTemp = (oldIronTemp * (averageFactor - 1) + ironTemp) / averageFactor;
+  }
+
 }
 
 void calcControls() {
