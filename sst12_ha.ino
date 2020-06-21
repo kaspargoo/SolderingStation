@@ -1,6 +1,6 @@
-#include <SPI.h>
+//#include <SPI.h>
 #include <Wire.h>
-#include <Adafruit_GFX.h>
+//#include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 //#include <max6675.h>
 //#include <PWM.h>
@@ -62,9 +62,11 @@ int ironTemp, airGunTemp, ironHandleTemp;
 byte ironSakeSensor;
 
 // PID variables for iron and air gun
-double iron_sp, air_gun_sp, iron_in, air_gun_in, iron_out, air_gun_out;
+//double pid_in, pid_out, pid_sp, air_gun_out, iron_out;
+double iron_in, iron_out, iron_sp, air_gun_in, air_gun_out, air_gun_sp;
 
 //PID myPID(&Input, &Output, &Setpoint, Kp, Ki, Kd, DIRECT);
+//PID myPID(&pid_in, &pid_out, &pid_sp, 2, 5, 1, DIRECT);
 PID iron_PID(&iron_in, &iron_out, &iron_sp, 2, 5, 1, DIRECT);
 PID air_gun_PID(&air_gun_in, &air_gun_out, &air_gun_sp, 2, 5, 1, DIRECT);
 
@@ -81,7 +83,7 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 void setup() {
   // put your setup code here, to run once:
-  Serial.begin(9600);
+//  Serial.begin(9600);
   
 // Lower PWM frequency to 30 Hz
   TCCR1B = TCCR1B & 0b11111000 | 0x05;
@@ -123,6 +125,9 @@ void setup() {
 
 // PIDs init
   iron_in = 0; iron_sp = 0; iron_PID.SetMode(AUTOMATIC);
+  air_gun_in = 0; air_gun_sp = 0; air_gun_PID.SetMode(AUTOMATIC);
+  
+  airGunFanCtrl = 100;
 
 // for max6675
 //  delay(1000);
@@ -138,14 +143,14 @@ void loop() {
 // Read sensor data
   readSensors();
 
-// Draw UI
-  drawUI();
-
 // Calculate control values
   calcControls();
 
 // Update control state
   setControls();
+
+// Draw UI
+  drawUI();
 
 }
 
@@ -165,8 +170,11 @@ void drawUI() {
       display.setCursor(20,16);
       display.println(encoderPos);
       display.setTextSize(1);
-      display.println(String(UIBackTimer) + " " + String(millis()));
-      display.print(String(prevEncoderPos) + " " + String(encoderPos));
+//      Serial.println("BT: " + String(UIBackTimer) + ", IT: " + String(ironTempCtrl) + ", IO " + String(iron_out));
+      display.println("BT: " + String(UIBackTimer));// + ",EP: " + String(encoderPos));// + ",BP: " + String(btnPress));
+      display.print("IT: " + String(ironTempCtrl));// + ",HT: " + String(airGunTempCtrl));// +",HF: " + String(airGunFanCtrl));
+      display.print(" IO: " + String(iron_out));// + ",HT: " + String(airGunTempCtrl));// +",HF: " + String(airGunFanCtrl));
+//      display.print(String(prevEncoderPos) + " " + String(encoderPos));
 
       if (prevEncoderPos != encoderPos) {
         switch (UICursor) {
@@ -216,9 +224,11 @@ void drawUI() {
       display.print(cc + "HF: ");
       display.println(airGunFanCtrl);
       display.setTextSize(1);
-      display.print("EP: ");
-      display.println(String(UIBackTimer) + " " + String(millis()));
-      display.print(String(UICursor) + " " + String(btnPress));
+//      Serial.println("BT: " + String(UIBackTimer) + ", IT: " + String(ironTempCtrl) + ", IO " + String(iron_out));
+
+      display.println("BT: " + String(UIBackTimer));// + ",EP: " + String(encoderPos));// + ",BP: " + String(btnPress));
+      display.print("IT: " + String(ironTempCtrl));// + ",HT: " + String(airGunTempCtrl));// +",HF: " + String(airGunFanCtrl));
+      display.print(" IO: " + String(iron_out));// + ",HT: " + String(airGunTempCtrl));// +",HF: " + String(airGunFanCtrl));
 
       if (btnPress == 1) {
         setUIMode(UI_SET, 3000);
@@ -257,10 +267,8 @@ void setUIMode(unsigned int mode, unsigned int backTimer) {
       initEncoder(UICursor, 0, 2, 1, true);
   }
 
-  if (backTimer > 0)
-    UIBackTimer = millis() + backTimer;
-  else
-    UIBackTimer = 0;
+  if (backTimer > 0) UIBackTimer = millis() + backTimer;
+  else UIBackTimer = 0;
 
 }
 
@@ -277,11 +285,11 @@ void readSensors() {
   tempReading = analogRead(IRON_THERMISTOR);
   ironHandleTemp = tempReading;
 
+// Stop iron PWM to read temperature
   analogWrite(IRON_CTRL, 0);
   delay(10);
   tempReading = analogRead(IRON_TC_OUT);
   ironTemp = tempReading;
-  analogWrite(IRON_CTRL, encoderPos);
 }
 
 void calcControls() {
@@ -290,6 +298,7 @@ void calcControls() {
     iron_sp = ironTempCtrl;
     iron_in = ironTemp;
     iron_PID.Compute();
+//    iron_out = pid_out;
   }
   else iron_out = 0;
 
@@ -297,18 +306,20 @@ void calcControls() {
     air_gun_sp = airGunTempCtrl;
     air_gun_in = airGunTemp;
     air_gun_PID.Compute();
+//    air_gun_out = pid_out;
   }
   else air_gun_out = 0;
   
 }
 
 void setControls() {
-  analogWrite(IRON_CTRL, 255 * iron_out); //);
-//  pwmWrite(IRON_CTRL, encoderPos);
-  analogWrite(AIR_GUN_HEATER_CTRL, 0.2 * 255 * air_gun_out);
-//  pwmWrite(AIR_GUN_HEATER_CTRL, encoderPos);
-  analogWrite(AIR_GUN_FAN_CTRL, 255 * ironTempCtrl / 100);
-//  pwmWrite(AIR_GUN_FAN_CTRL, encoderPos);
+  analogWrite(IRON_CTRL, iron_out); //);
+//  pwmWrite(IRON_CTRL, iron_out);
+// Limit air heater power to 20%
+  analogWrite(AIR_GUN_HEATER_CTRL, 0.1 * air_gun_out);
+//  pwmWrite(AIR_GUN_HEATER_CTRL, 0.1 * air_gun_out);
+  analogWrite(AIR_GUN_FAN_CTRL, 255 * airGunFanCtrl / 100);
+//  pwmWrite(AIR_GUN_FAN_CTRL, 255 * airGunFanCtrl / 100);
 }
 
 void initEncoder(unsigned int cur, unsigned int min, unsigned int max, unsigned int step, bool looped) {
