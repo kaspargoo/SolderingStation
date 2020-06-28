@@ -1,3 +1,4 @@
+#include <EEPROM.h>
 //#include <SPI.h>
 #include <Wire.h>
 //#include <Adafruit_GFX.h>
@@ -58,12 +59,14 @@ volatile int encoderMin, encoderMax, encoderStep;
 volatile bool encoderLooped = true;
 volatile unsigned int btnPress = 0;
 
+int EEMEM airGunFanCtrl_addr;
+
 // Control variables
 int ironTempCtrl, airGunTempCtrl, airGunFanCtrl;
 
 // Sensor variables
 int ironTemp, airGunTemp, ironHandleTemp, oldIronTemp, oldAirGunTemp;
-byte ironSakeSensor;
+byte ironSakeSensor, airGunReedSensor;
 
 // PID variables for iron and air gun
 //double pid_in, pid_out, pid_sp, air_gun_out, iron_out;
@@ -100,13 +103,19 @@ void setup() {
 //  SetPinFrequencySafe(AIR_GUN_HEATER_CTRL, 3);
 //  SetPinFrequencySafe(AIR_GUN_FAN_CTRL, 490);
 
+// Init control pins
   pinMode(IRON_CTRL, OUTPUT);
   pinMode(AIR_GUN_HEATER_CTRL, OUTPUT);
   pinMode(AIR_GUN_FAN_CTRL, OUTPUT);
-
   analogWrite(IRON_CTRL, 0);
   analogWrite(AIR_GUN_HEATER_CTRL, 0);
   analogWrite(AIR_GUN_FAN_CTRL, 0);
+
+// Init sensor pins
+  pinMode(IRON_SHAKE_SENSOR, INPUT);
+  pinMode(AIR_GUN_REED, INPUT);
+  digitalWrite(IRON_SHAKE_SENSOR, HIGH);
+  digitalWrite(AIR_GUN_REED, HIGH);
 
 // Init encoder pins and assign functions to interruptions
   pinMode(ENC_A, INPUT);
@@ -124,23 +133,23 @@ void setup() {
 // Init OLED display
   display.begin(SSD1306_SWITCHCAPVCC, 0x3C);  // initialize with the I2C addr 0x3D (for the 128x64)
   
-// Initial temp reading
+// Initial temp reading (for smoothing)
   ironTemp = analogRead(IRON_TC_OUT);
   airGunTemp = analogRead(AIR_GUN_TC_OUT);
 
-// Controls init
+// Init controls 
   ironTempCtrl = 0; airGunTempCtrl = 0, airGunFanCtrl = 0;
 
-// PIDs init
+// Init PIDs
   iron_in = 0; iron_sp = 0; iron_PID.SetMode(AUTOMATIC);
   air_gun_in = 0; air_gun_sp = 0; air_gun_PID.SetMode(AUTOMATIC);
 
+// Temporary
   airGunFanCtrl = 100;
 
 // for max6675
 //  delay(1000);
 
-//  initEncoder(0, 0, 250, 10, false);
   UICursor = 0;
   setUIMode(UI_ABOUT, 1000);
 
@@ -232,9 +241,9 @@ void drawUI() {
       display.println(airGunFanCtrl);
       display.setTextSize(1);
 
-      display.println("BT: " + String(UIBackTimer) + ",EP: " + String(encoderPos) + ",BP: " + String(btnPress));
-      display.print("IT: " + String(ironTempCtrl));// + ",HT: " + String(airGunTempCtrl));// +",HF: " + String(airGunFanCtrl));
-      display.print(" IO: " + String(iron_out));// + ",HT: " + String(airGunTempCtrl));// +",HF: " + String(airGunFanCtrl));
+      display.println("BT:" + String(UIBackTimer) + ",EP:" + String(encoderPos) + ",BP:" + String(btnPress));
+      display.println("IT:" + String(ironTempCtrl) + ",IO:" + String(iron_out) + ",S:" + String(ironSakeSensor) + ",R:" + String(airGunReedSensor));// + ",HT: " + String(airGunTempCtrl));// +",HF: " + String(airGunFanCtrl));
+      //display.print(",HT: " + String(airGunTempCtrl));// +",HF: " + String(airGunFanCtrl));
 
       if (btnPress == 1) {
         setUIMode(UI_SET, 3000);
@@ -269,6 +278,10 @@ void setUIMode(unsigned int mode, unsigned int backTimer) {
       UIMode = UI_ABOUT;
       break;
     default: //UI_MAIN
+// If we are switching from UI_SET mode then update values in EEPROM
+      if (UIMode = UI_SET) {
+        EEPROM.put((int)&airGunFanCtrl_addr, airGunFanCtrl);
+      }
       UIMode = UI_MAIN;
       initEncoder(UICursor, 0, 2, 1, true);
   }
@@ -294,15 +307,11 @@ void readSensors() {
     airGunTemp = (oldAirGunTemp * (averageFactor - 1) + airGunTemp) / averageFactor;
   }
 
-//  tempReading = analogRead(IRON_THERMISTOR);
-//  ironHandleTemp = tempReading;
   ironHandleTemp = analogRead(IRON_THERMISTOR);
 
 // Stop iron PWM to read temperature
   analogWrite(IRON_CTRL, 0);
   delay(10);
-//  tempReading = analogRead(IRON_TC_OUT);
-//  ironTemp = tempReading;
   
   oldIronTemp = ironTemp;
   ironTemp = analogRead(IRON_TC_OUT);
@@ -310,6 +319,9 @@ void readSensors() {
   if (averageFactor > 0) {
     ironTemp = (oldIronTemp * (averageFactor - 1) + ironTemp) / averageFactor;
   }
+
+  ironSakeSensor = digitalRead(IRON_SHAKE_SENSOR);
+  airGunReedSensor = digitalRead(AIR_GUN_REED);
 
 }
 
