@@ -4,7 +4,7 @@
 //#include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 //#include <max6675.h>
-//#include <PWM.h>
+#include <PWM.h>
 #include <PID_v1.h>
 
 // UI display modes
@@ -93,23 +93,26 @@ void setup() {
 //  Serial.begin(9600);
   
 // Lower PWM frequency to 30 Hz
-  TCCR1B = TCCR1B & 0b11111000 | 0x05;
+//  TCCR1B = TCCR1B & 0b11111000 | 0x05;
 
 // Init PWM and ctrl pins
 // PWM lib. Init all timers except for 0, to save time keeping functions
-//  InitTimersSafe();
+  InitTimersSafe();
 // PWM lib. Set IRON_CTRL and AIR_GUN_HEATER_CTRL pins frequency to 3 Hz
-//  SetPinFrequencySafe(IRON_CTRL, 3);
-//  SetPinFrequencySafe(AIR_GUN_HEATER_CTRL, 3);
-//  SetPinFrequencySafe(AIR_GUN_FAN_CTRL, 490);
+  SetPinFrequencySafe(IRON_CTRL, 3);
+  SetPinFrequencySafe(AIR_GUN_HEATER_CTRL, 3);
+  SetPinFrequencySafe(AIR_GUN_FAN_CTRL, 31372.55);
 
 // Init control pins
   pinMode(IRON_CTRL, OUTPUT);
   pinMode(AIR_GUN_HEATER_CTRL, OUTPUT);
   pinMode(AIR_GUN_FAN_CTRL, OUTPUT);
-  analogWrite(IRON_CTRL, 0);
-  analogWrite(AIR_GUN_HEATER_CTRL, 0);
-  analogWrite(AIR_GUN_FAN_CTRL, 0);
+//  analogWrite(IRON_CTRL, 0);
+//  analogWrite(AIR_GUN_HEATER_CTRL, 0);
+//  analogWrite(AIR_GUN_FAN_CTRL, 0);
+  pwmWrite(IRON_CTRL, 0);
+  pwmWrite(AIR_GUN_HEATER_CTRL, 0);
+  pwmWrite(AIR_GUN_FAN_CTRL, 0);
 
 // Init sensor pins
   pinMode(IRON_SHAKE_SENSOR, INPUT);
@@ -216,7 +219,7 @@ void drawUI() {
       display.setTextSize(2);
       display.setCursor(0,0);
       display.println(" SST12_HA ");
-      display.println("SW: 0.3");
+      display.println("SW: 0.4");
       display.println("HW: REV A");
       display.setTextSize(1);
       display.println(String(UIBackTimer) + " " + String(millis()));
@@ -310,7 +313,8 @@ void readSensors() {
   ironHandleTemp = analogRead(IRON_THERMISTOR);
 
 // Stop iron PWM to read temperature
-  analogWrite(IRON_CTRL, 0);
+//  analogWrite(IRON_CTRL, 0);
+  pwmWrite(IRON_CTRL, 0);
   delay(10);
   
   oldIronTemp = ironTemp;
@@ -346,13 +350,13 @@ void calcControls() {
 }
 
 void setControls() {
-  analogWrite(IRON_CTRL, iron_out); //);
-//  pwmWrite(IRON_CTRL, iron_out);
+//  analogWrite(IRON_CTRL, iron_out);
+  pwmWrite(IRON_CTRL, iron_out);
 // Limit air heater power to 20%
-  analogWrite(AIR_GUN_HEATER_CTRL, 0.1 * air_gun_out);
-//  pwmWrite(AIR_GUN_HEATER_CTRL, 0.1 * air_gun_out);
-  analogWrite(AIR_GUN_FAN_CTRL, 255 * airGunFanCtrl / 100);
-//  pwmWrite(AIR_GUN_FAN_CTRL, 255 * airGunFanCtrl / 100);
+//  analogWrite(AIR_GUN_HEATER_CTRL, 0.1 * air_gun_out);
+  pwmWrite(AIR_GUN_HEATER_CTRL, 0.1 * air_gun_out);
+//  analogWrite(AIR_GUN_FAN_CTRL, 255 * airGunFanCtrl / 100);
+  pwmWrite(AIR_GUN_FAN_CTRL, 255 * airGunFanCtrl / 100);
 }
 
 void initEncoder(unsigned int cur, unsigned int min, unsigned int max, unsigned int step, bool looped) {
