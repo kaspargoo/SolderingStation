@@ -97,11 +97,12 @@ void setup() {
 
 // Init PWM and ctrl pins
 // PWM lib. Init all timers except for 0, to save time keeping functions
-  InitTimersSafe();
+//  InitTimersSafe();
+  Timer1_Initialize();
 // PWM lib. Set IRON_CTRL and AIR_GUN_HEATER_CTRL pins frequency to 3 Hz
   SetPinFrequencySafe(IRON_CTRL, 3);
   SetPinFrequencySafe(AIR_GUN_HEATER_CTRL, 3);
-  SetPinFrequencySafe(AIR_GUN_FAN_CTRL, 31372.55);
+//  SetPinFrequencySafe(AIR_GUN_FAN_CTRL, 31372.55);
 
 // Init control pins
   pinMode(IRON_CTRL, OUTPUT);
@@ -219,7 +220,7 @@ void drawUI() {
       display.setTextSize(2);
       display.setCursor(0,0);
       display.println(" SST12_HA ");
-      display.println("SW: 0.4");
+      display.println("SW: 0.5");
       display.println("HW: REV A");
       display.setTextSize(1);
       display.println(String(UIBackTimer) + " " + String(millis()));
